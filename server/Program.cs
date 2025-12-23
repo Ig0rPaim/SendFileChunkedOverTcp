@@ -3,10 +3,11 @@ using System.Net.Sockets;
 
 
 int bufferFileSizeInBytes = 8;
+int bufferToCode = 8;
 int bufferToCheckSum = 32;
 int bufferFileNameSizeInBytes = 255;
 int bufferSizeForFileTransfer = 8192;
-int bufferSizeForHeader = bufferFileSizeInBytes + bufferToCheckSum + bufferFileNameSizeInBytes;
+int bufferSizeForHeader = bufferFileSizeInBytes + bufferToCode + bufferToCheckSum + bufferFileNameSizeInBytes;
 
 using var tcpListener = new TcpListener(IPAddress.Any, 4000);
 tcpListener.Start();
@@ -50,11 +51,14 @@ async Task ProcessRequest(TcpClient connection)
             //get File size
             long fileSize = BitConverter.ToInt64(header[0..bufferFileSizeInBytes]);
 
+            //get code
+            int code = BitConverter.ToInt32(header[bufferFileSizeInBytes..(bufferFileSizeInBytes + bufferToCode)]);
+
             //get CheckSum
-            byte[] receivedCheckSum = header[bufferFileSizeInBytes..(bufferFileSizeInBytes + bufferToCheckSum)];
+            byte[] receivedCheckSum = header[(bufferFileSizeInBytes + bufferToCode)..(bufferFileSizeInBytes + bufferToCode + bufferToCheckSum)];
 
             //get file Name
-            string fileNameStr = System.Text.Encoding.UTF8.GetString(header, bufferFileSizeInBytes + bufferToCheckSum, bufferFileNameSizeInBytes).TrimEnd('\0');
+            string fileNameStr = System.Text.Encoding.UTF8.GetString(header, bufferFileSizeInBytes + bufferToCode + bufferToCheckSum, bufferFileNameSizeInBytes).TrimEnd('\0');
 
             
             byte[] fileInBytes = await ReadAndStoreBytes(fileSize, networkStream);
@@ -71,6 +75,7 @@ async Task ProcessRequest(TcpClient connection)
 
             Console.WriteLine($"Sucesso: {fileNameStr} recebido.");
             var finishTime = new TimeSpan(DateTime.Now.Ticks);
+            Console.WriteLine($"codigo {code}");
             Console.WriteLine($"Duração: {finishTime.Subtract(initTime).Seconds} segundos.");
 
             networkStream.Write(new byte[] { 0 });

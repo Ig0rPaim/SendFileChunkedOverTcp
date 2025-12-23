@@ -4,13 +4,14 @@ using System.Text;
 try
 {
     int bufferFileSizeInBytes = 8;
+    int bufferToCode = 8;
     int bufferToCheckSum = 32;
     int bufferFileNameSizeInBytes = 255;
     int bufferSizeForFileTransfer = 8192;
-    int bufferSizeForHeader = bufferFileSizeInBytes + bufferToCheckSum + bufferFileNameSizeInBytes;
+    int bufferSizeForHeader = bufferFileSizeInBytes + bufferToCode + bufferToCheckSum + bufferFileNameSizeInBytes;
 
     #region get file
-    using var fileStream = new FileStream(@"C:\Users\ioliveira\Desktop\sapro_processo_comp.zip", FileMode.OpenOrCreate, FileAccess.ReadWrite);
+    using var fileStream = new FileStream(@"C:\Users\ioliveira\Desktop\arquivoNovo.zip", FileMode.OpenOrCreate, FileAccess.ReadWrite);
     byte[] buffer = new byte[bufferSizeForFileTransfer];
     #endregion
 
@@ -28,6 +29,9 @@ try
     // add File size to header
     BitConverter.GetBytes(fileStream.Length).CopyTo(header, 0);
 
+    // add code to header
+    BitConverter.GetBytes(120109).CopyTo(header, bufferFileSizeInBytes);
+
     // add checksum to header
     using (var ms = new MemoryStream())
     {
@@ -35,11 +39,11 @@ try
 
         byte[] checksum = GetChecksum(ms.ToArray());
 
-        checksum.CopyTo(header, bufferFileSizeInBytes);
+        checksum.CopyTo(header, bufferFileSizeInBytes + bufferToCode);
     }
 
     // add file name to header
-    Encoding.UTF8.GetBytes(Path.GetFileName(fileStream.Name)).CopyTo(header, bufferFileSizeInBytes + bufferToCheckSum);
+    Encoding.UTF8.GetBytes(Path.GetFileName(fileStream.Name)).CopyTo(header, bufferFileSizeInBytes + bufferToCode + bufferToCheckSum);
 
     // send header
     networkStream.Write(header, 0, bufferSizeForHeader);
@@ -54,7 +58,7 @@ try
 
     // get response
     byte[] response = [1];
-    networkStream.ReadAsync(response, 0, 1).Wait(3000);
+    networkStream.ReadAsync(response, 0, 1).Wait(5000);
 
     if (response[0] == 0)
     {
