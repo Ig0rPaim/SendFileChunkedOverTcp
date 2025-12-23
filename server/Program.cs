@@ -52,7 +52,7 @@ async Task ProcessRequest(TcpClient connection)
             byte[] receivedCheckSum = header[16..48];
             string fileNameStr = Encoding.UTF8.GetString(header, 48, 255).TrimEnd('\0');
 
-            string savePath = Path.Combine(@"C:\Users\ioliveira\Desktop\", "recebido_" + fileNameStr);
+            string savePath = Path.Combine(@"\\freia\REPOSITORIO_ARQUIVOS\Sapro\Diversos\GDrive\", "recebido_" + fileNameStr);
             bool isValid = await ReceiveAndVerifyFile(fileSize, networkStream, savePath, receivedCheckSum);
 
             if (!isValid)
@@ -64,6 +64,8 @@ async Task ProcessRequest(TcpClient connection)
             {
                 var duration = DateTime.Now - initTime;
                 Console.WriteLine($"Sucesso: {fileNameStr} recebido em {duration.TotalSeconds:F2}s. Code: {code}");
+                Console.WriteLine($"Codigo: {code}");
+                Console.WriteLine($"Tamanho do arquivo: {(fileSize / 1024) / 1024} Mb");
                 networkStream.Write(new byte[] { 0 }); // 0 para Sucesso
             }
 
