@@ -11,7 +11,7 @@ try
     int bufferSizeForHeader = bufferFileSizeInBytes + bufferToCode + bufferToCheckSum + bufferFileNameSizeInBytes;
 
     #region get file
-    using var fileStream = new FileStream(@"C:\Users\ioliveira\Desktop\arquivoNovo.zip", FileMode.OpenOrCreate, FileAccess.ReadWrite);
+    using var fileStream = new FileStream(@"C:\Users\ioliveira\Desktop\o_grande_zip.zip", FileMode.OpenOrCreate, FileAccess.ReadWrite);
     byte[] buffer = new byte[bufferSizeForFileTransfer];
     #endregion
 
@@ -33,14 +33,9 @@ try
     BitConverter.GetBytes(120109).CopyTo(header, bufferFileSizeInBytes);
 
     // add checksum to header
-    using (var ms = new MemoryStream())
-    {
-        await fileStream.CopyToAsync(ms);
-
-        byte[] checksum = GetChecksum(ms.ToArray());
-
-        checksum.CopyTo(header, bufferFileSizeInBytes + bufferToCode);
-    }
+    byte[] checksum = await System.Security.Cryptography.SHA256.HashDataAsync(fileStream);
+    checksum.CopyTo(header, bufferFileSizeInBytes + bufferToCode);
+    
 
     // add file name to header
     Encoding.UTF8.GetBytes(Path.GetFileName(fileStream.Name)).CopyTo(header, bufferFileSizeInBytes + bufferToCode + bufferToCheckSum);
