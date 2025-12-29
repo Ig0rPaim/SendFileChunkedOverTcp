@@ -7,18 +7,21 @@ try
     int bufferToCode = 8;
     int bufferToCheckSum = 32;
     int bufferFileNameSizeInBytes = 255;
-    int bufferSizeForFileTransfer = 8192;
+    //int bufferSizeForFileTransfer = 8000000;
+    int bufferSizeForFileTransfer = 81920;
     int bufferSizeForHeader = bufferFileSizeInBytes + bufferToCode + bufferToCheckSum + bufferFileNameSizeInBytes;
 
     #region get file
-    using var fileStream = new FileStream(@"C:\Users\ioliveira\Desktop\o_grande_zip.zip", FileMode.OpenOrCreate, FileAccess.ReadWrite);
+    using var fileStream = new FileStream(@"C:\Users\ioliveira\Desktop\arquivoNovo.zip", FileMode.OpenOrCreate, FileAccess.ReadWrite);
     byte[] buffer = new byte[bufferSizeForFileTransfer];
     #endregion
 
 
     using var client = new TcpClient();
 
-    client.Connect("localhost", 4000);
+    client.Connect("10.10.1.61", 4000);
+
+    Console.WriteLine("Connected to server.");
 
     using var networkStream = client.GetStream();
 
@@ -42,13 +45,18 @@ try
 
     // send header
     networkStream.Write(header, 0, bufferSizeForHeader);
+    Console.WriteLine("Header sended");
     int bytesRead;
 
     //send chunked file
     fileStream.Position = 0;
+    var total = fileStream.Length / bufferSizeForFileTransfer;
+    long blocksSent = 0;
     while ((bytesRead = await fileStream.ReadAsync(buffer, 0, bufferSizeForFileTransfer)) > 0)
     {
         networkStream.Write(buffer, 0, bytesRead);
+        blocksSent++;
+        Console.WriteLine($"{blocksSent} enviados de {total}");
     }
 
     // get response
