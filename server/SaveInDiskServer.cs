@@ -6,7 +6,7 @@ namespace server
 {
     internal class SaveInDiskServer
     {
-        // 8MB é muito grande para buffers de rede. 81KB é um múltiplo do tamanho de cluster comum (4096)
+        //81KB é um múltiplo do tamanho de cluster comum (4096)
         // e próximo do limite do LOH (Large Object Heap) do .NET.
         int bufferSizeForFileTransfer = 81920;
 
@@ -27,6 +27,7 @@ namespace server
                 try
                 {
                     var connection = await tcpListener.AcceptTcpClientAsync();
+                    connection.NoDelay = true;
                     _ = ProcessRequest(connection);
                 }
                 catch (Exception e)
@@ -119,9 +120,6 @@ namespace server
         {
             using var sha256 = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
 
-            /// stream para compartilhar com outros componentes, se necessário
-            //using var streamParaLib = new HashAndLimitStream(networkStream, fileSize, sha256);
-
             // FileOptions.Asynchronous é CRUCIAL para performance real de I/O
             using var fileStream = new FileStream(savePath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, FileOptions.Asynchronous);
 
@@ -134,12 +132,10 @@ namespace server
 
             while (totalBytesRead < fileSize)
             {
-                // Lê o que tiver disponível no stream, até o tamanho do buffer
                 int bytesRead = await networkStream.ReadAsync(buffer, 0, buffer.Length);
 
                 if (bytesRead == 0) break; // Conexão fechada
 
-                // Escreve no disco e calcula hash
                 await fileStream.WriteAsync(buffer, 0, bytesRead);
                 sha256.AppendData(buffer, 0, bytesRead);
 
@@ -157,29 +153,6 @@ namespace server
             byte[] actualHash = sha256.GetHashAndReset();
             return actualHash.SequenceEqual(expectedHash);
         }
-
-        //async Task MoveFileToNetworkAsync(string sourceFile, string destinationFile)
-        //{
-        //    // Buffer de 1MB para a cópia de REDE (SMB). 
-        //    // Diferente do TCP, aqui quanto maior, melhor (até uns 4-8MB), 
-        //    // pois reduz o número de "viagens" (round-trips) do protocolo.
-        //    const int smbBufferSize = 1024 * 1024 * 8; // 8MB
-
-        //    using (var sourceStream = new FileStream(sourceFile, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous | FileOptions.SequentialScan))
-        //    using (var destStream = new FileStream(destinationFile, FileMode.CreateNew, FileAccess.Write, FileShare.None, smbBufferSize, FileOptions.Asynchronous))
-        //    {
-        //        byte[] buffer = new byte[smbBufferSize];
-        //        int bytesRead;
-
-        //        while ((bytesRead = await sourceStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
-        //        {
-        //            await destStream.WriteAsync(buffer, 0, bytesRead);
-        //        }
-        //    }
-
-        //    // Só deleta o original se a cópia terminar sem erros
-        //    File.Delete(sourceFile);
-        //}
 
         private async Task MoveFileToNetworkAsync(string sourceFile, string destinationFile)
         {

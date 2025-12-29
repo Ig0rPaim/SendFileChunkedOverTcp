@@ -7,82 +7,93 @@ try
     int bufferToCode = 8;
     int bufferToCheckSum = 32;
     int bufferFileNameSizeInBytes = 255;
-    //int bufferSizeForFileTransfer = 8000000;
+    // Otimizado para 80KB (Múltiplo de 4KB e próximo de 85KB LOH)
     int bufferSizeForFileTransfer = 81920;
     int bufferSizeForHeader = bufferFileSizeInBytes + bufferToCode + bufferToCheckSum + bufferFileNameSizeInBytes;
 
-    #region get file
-    using var fileStream = new FileStream(@"C:\Users\ioliveira\Desktop\arquivoNovo.zip", FileMode.OpenOrCreate, FileAccess.ReadWrite);
-    byte[] buffer = new byte[bufferSizeForFileTransfer];
-    #endregion
+    string filePath = @"C:\Users\ioliveira\Desktop\arquivoNovo.zip";
 
+    using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous | FileOptions.SequentialScan);
 
     using var client = new TcpClient();
 
-    client.Connect("10.10.1.61", 4000);
+    client.NoDelay = true;
 
-    Console.WriteLine("Connected to server.");
+    Console.WriteLine("Conectando ao servidor...");
+    await client.ConnectAsync("10.10.1.61", 4000);
+    Console.WriteLine("Conectado.");
 
     using var networkStream = client.GetStream();
 
-    buffer = new byte[bufferSizeForFileTransfer];
-
     byte[] header = new byte[bufferSizeForHeader];
 
-    // add File size to header
-    BitConverter.GetBytes(fileStream.Length).CopyTo(header, 0);
-
-    // add code to header
-    BitConverter.GetBytes(120109).CopyTo(header, bufferFileSizeInBytes);
-
-    // add checksum to header
+    // --- Montagem do Header ---
+    Console.WriteLine("Calculando Hash...");
     byte[] checksum = await System.Security.Cryptography.SHA256.HashDataAsync(fileStream);
+    fileStream.Position = 0; // Volta para o início após ler pro hash
+
+    BitConverter.GetBytes(fileStream.Length).CopyTo(header, 0);
+    BitConverter.GetBytes(120109).CopyTo(header, bufferFileSizeInBytes);
     checksum.CopyTo(header, bufferFileSizeInBytes + bufferToCode);
-    
+    Encoding.UTF8.GetBytes(Path.GetFileName(filePath)).CopyTo(header, bufferFileSizeInBytes + bufferToCode + bufferToCheckSum);
 
-    // add file name to header
-    Encoding.UTF8.GetBytes(Path.GetFileName(fileStream.Name)).CopyTo(header, bufferFileSizeInBytes + bufferToCode + bufferToCheckSum);
+    // Envia header
+    await networkStream.WriteAsync(header, 0, bufferSizeForHeader);
+    Console.WriteLine("Header enviado. Iniciando transmissão de dados...");
 
-    // send header
-    networkStream.Write(header, 0, bufferSizeForHeader);
-    Console.WriteLine("Header sended");
+    // --- Transmissão do Arquivo ---
+    byte[] buffer = new byte[bufferSizeForFileTransfer];
     int bytesRead;
+    long totalSent = 0;
+    long fileSize = fileStream.Length;
 
-    //send chunked file
-    fileStream.Position = 0;
-    var total = fileStream.Length / bufferSizeForFileTransfer;
-    long blocksSent = 0;
-    while ((bytesRead = await fileStream.ReadAsync(buffer, 0, bufferSizeForFileTransfer)) > 0)
+    // Variáveis para controle de log (Evitar spam no console)
+    long lastLogBytes = 0;
+    long logInterval = 1024 * 1024 * 10; // Logar a cada 10 MB
+
+    var sw = System.Diagnostics.Stopwatch.StartNew();
+
+    while ((bytesRead = await fileStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
     {
-        networkStream.Write(buffer, 0, bytesRead);
-        blocksSent++;
-        Console.WriteLine($"{blocksSent} enviados de {total}");
+        await networkStream.WriteAsync(buffer, 0, bytesRead);
+        totalSent += bytesRead;
+
+        // Só imprime se já passou mais de 10MB desde o último print
+        if ((totalSent - lastLogBytes) > logInterval)
+        {
+            double progress = (double)totalSent / fileSize * 100;
+            double speed = (totalSent / 1024.0 / 1024.0) / sw.Elapsed.TotalSeconds;
+            Console.WriteLine($"Progresso: {progress:F1}% - Velocidade: {speed:F1} MB/s");
+            lastLogBytes = totalSent;
+        }
     }
+    sw.Stop();
+    Console.WriteLine($"Envio concluído em {sw.Elapsed.TotalSeconds:F2}s.");
 
-    // get response
-    byte[] response = [1];
-    networkStream.ReadAsync(response, 0, 1).Wait(5000);
+    // --- Recebimento da Resposta ---
+    byte[] response = new byte[1];
 
-    if (response[0] == 0)
+    // Timeout simples usando CancellationToken
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+    try
     {
-        Console.WriteLine("File sent successfully.");
+        int bytesRec = await networkStream.ReadAsync(response, 0, 1, cts.Token);
+
+        if (bytesRec > 0 && response[0] == 0)
+        {
+            Console.WriteLine("Sucesso: Servidor confirmou o recebimento e validação.");
+        }
+        else
+        {
+            Console.WriteLine("Falha: Servidor retornou erro ou checksum inválido.");
+        }
     }
-    else
+    catch (OperationCanceledException)
     {
-        Console.WriteLine("File transfer failed.");
+        Console.WriteLine("Erro: Timeout aguardando resposta do servidor.");
     }
 }
-catch(Exception e)
+catch (Exception e)
 {
-    Console.WriteLine($"Erro: {e.Message}");
-}
-
-
-static byte[] GetChecksum(byte[] file)
-{
-    System.Security.Cryptography.HashAlgorithm hasher = System.Security.Cryptography.SHA256.Create();
-    using (hasher)
-    {
-        return hasher.ComputeHash(file);
-    }
+    Console.WriteLine($"Erro Fatal: {e.Message}");
 }
